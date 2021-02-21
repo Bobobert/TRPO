@@ -100,6 +100,7 @@ class Reference:
         self.prevVersions = Stack()
         self.limit = limit
         self.device = device
+        self._version = 0
     
     def save(self, path):
         if self.torchType:
@@ -150,7 +151,7 @@ class Reference:
         print("Object successfully loaded from ", path)
 
     def saveTorch(self, path):
-        name = self.name + "_" + timeFormated() + ".modelst"
+        name = self._gen_name() + ".modelst"
         path = os.path.join(path, name)
         try:
             stateDict = self.ref.state_dict()
@@ -160,13 +161,17 @@ class Reference:
             None
 
     def savePy(self, path):
-        name = self.name + "_" + timeFormated() + ".pyobj"
+        name = self._gen_name() + ".pyobj"
         path = os.path.join(path, name)
         if sys.getsizeof(self.ref) < LIMIT_4G:
             fileHandler = open(path, "wb")
             pickle.dump(self.ref, fileHandler)
             fileHandler.close()
             self.prevVersions.add(path)
+
+    def _gen_name(self):
+        self._version += 1
+        return self.name + "_v{}".format(self._version) + "_" + timeFormated()
 
 class Saver():
     """

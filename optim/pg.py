@@ -1,5 +1,5 @@
 from .optimMaker import optimizerMaker
-from functions.const import *
+from TRPO.functions.const import *
 from .functions import unpackTrayectories
 
 class PG:
@@ -21,7 +21,7 @@ class PG:
         states, actions, returns, oldLogprobs, baselines, N = unpackTrayectories(*trayectoryBatch, device = self.device)
         self.states, self.returns = states, returns
 
-        advantages = returns - baselines
+        advantages = returns.unsqueeze(1) - baselines
         out = self.policy.forward(states)
         dist = self.policy.getDist(out)
         logActions = dist.log_prob(actions.detach_())

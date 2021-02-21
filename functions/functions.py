@@ -3,7 +3,7 @@ from numba.typed import List
 from tqdm import tqdm
 from .const import *
 from .utils import Tocker
-from optim import TRPO
+from TRPO.optim import TRPO
 
 def toT(arr:np.ndarray, device = DEVICE_DEFT, dtype = F_DTYPE_DEFT, grad: bool = False):
         arr = np.squeeze(arr) # Fix due to a problem in Pendulum Observation, seems arbritary when it fails or not.
@@ -43,6 +43,7 @@ def test(env, policy, testSteps:int = - 1):
     return accReward, steps
 
 def testRun(env, policy, nTests:int, testSteps:int = -1, prnt: bool = False):
+    global LOGR
     meanRunReward, meanC, stepsMean, var = 0, 1 / nTests, 0, []
     for i in range(nTests):
         runRes, steps = test(env, policy, testSteps)
@@ -53,7 +54,10 @@ def testRun(env, policy, nTests:int, testSteps:int = -1, prnt: bool = False):
     for v in var:
         tVar += meanC * (v - meanRunReward)**2
     if prnt:
-        print("Means: accumulate_reward {:.3f}, variance {:.3f}, steps {:.3f}".format(meanRunReward, tVar, stepsMean))
+        s = "Means: accumulate_reward {:.3f}, variance {:.3f}, steps {:.3f}".format(meanRunReward, tVar, stepsMean)
+        print(s)
+        if LOGR is not None:
+            LOGR.logr(s)
     return meanRunReward, tVar, stepsMean
     
 class Memory():
@@ -198,11 +202,14 @@ class Crawler:
     def getMem(self, device = DEVICE_DEFT):
         return self.mem.getBatch(device = device)
 
+    def runTest(self, nTest:int):
+        return testRun(self.env, self.pi, nTest)
+
 def train(envMaker, policy,
             optPolicy,
             baseline = None,
             optBaselineMaker = None,
-            envTest = None,
+            testEnvMaker = None,
             saver = None,
             iterations: int = 100,
             batchSize: int = BATCH_SIZE,
@@ -222,6 +229,8 @@ def train(envMaker, policy,
     assert (gamma <= 1) and (gamma >= 0), "Gamma must be in the interval [0,1] "
     assert nWorkers > 0, "nWorkers must be greater than 0"
     
+    global LOGR
+
     if nWorkers > 1:
         try:
             import ray
@@ -260,7 +269,7 @@ def train(envMaker, policy,
             saver.check()
         # Checking and executing test
         if it % testFreq == 0:
-            envTest = envMaker()
+            envTest = testEnvMaker() if testEnvMaker is not None else envMaker()
             meanAcc, var, meanSteps = testRun(envTest, policy, nTests=nTests ,testSteps = testSteps)
             testRewardRes += [meanAcc]
             testVar += [var]
@@ -276,11 +285,13 @@ def train(envMaker, policy,
         # Update policy parameters
         s = optPolicy.updateParams(*trayectories)
         bar.write(s) if s is not None else None
-        
+        if LOGR is not None:
+            LOGR.logr(s)
+
         # Update baseline parameters
         if baseline is not None:
             states, returns = optPolicy.states, optPolicy.returns
-            returns.detach_().to(device)
+            returns = returns.detach().to(device)
             states.detach_().to(device)
             baseline_s = baseline.forward(states).squeeze()
             optBaseline.zero_grad()

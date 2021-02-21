@@ -1,5 +1,5 @@
-from functions.functions import copyStateDict
-from functions.const import *
+from TRPO.functions.functions import copyStateDict
+from TRPO.functions.const import *
 
 class Policy(nn.Module):
     """

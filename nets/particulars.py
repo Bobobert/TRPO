@@ -1,6 +1,6 @@
 from .base import Policy, Value
 from .dist import *
-from functions.const import *
+from TRPO.functions.const import *
 
 class policyNet(Policy):
     _h1_ = 30

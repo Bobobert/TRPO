@@ -1,4 +1,4 @@
-from functions.const import *
+from TRPO.functions.const import *
 from torch.distributions.kl import register_kl
 from torch.distributions import Normal, Categorical
 

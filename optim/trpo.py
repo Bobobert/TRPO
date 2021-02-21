@@ -1,6 +1,6 @@
 # THIS IS HELL
 from torch.distributions.kl import kl_divergence
-from functions.const import *
+from TRPO.functions.const import *
 from .functions import cg, ls, convert2flat, convertFromFlat, unpackTrayectories
 
 """import gc
@@ -50,8 +50,8 @@ class TRPO:
                 pi = self.pi
                 states.requires_grad_(True)
             dist = pi.getDist(pi.forward(states))
-            logprobsNew = Tsum(dist.log_prob(actions), dim=1)
-            oldLogprobs_ = Tsum(oldLogprobs.detach_(), dim=1)
+            logprobsNew = Tsum(dist.log_prob(actions), dim=-1)
+            oldLogprobs_ = Tsum(oldLogprobs.detach_(), dim=-1)
             probsDiff = exp(logprobsNew - oldLogprobs_) 
             surrogate = mean(mul(probsDiff, advantage))
             surrogate *=  -1.0 if self.gae else 1.0

@@ -1,4 +1,4 @@
-from functions.const import *
+from TRPO.functions.const import *
 
 ### FOR TRPO ONLY
 def convert2flat(x):

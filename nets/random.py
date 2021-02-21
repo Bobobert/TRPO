@@ -1,4 +1,4 @@
-from functions.const import *
+from TRPO.functions.const import *
 from .base import Policy
 
 class randomPolicy(Policy):

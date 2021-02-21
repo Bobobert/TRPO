@@ -1,4 +1,5 @@
 from .utils import  timeFormatedS, timeFormated
+
 class MiniLogger():
     """
     Lazzy logger
@@ -13,7 +14,7 @@ class MiniLogger():
     def kwLog(self, **kwargs):
         s, spc = beginEntry()
         for k in kwargs.keys():
-            s += "arg: {} := {}".format(k, kwargs[k]) + " - -\n"
+            s += "arg: {} := {}".format(k, kwargs[k]) + " \n"
             s += spc
         self.write(s)
 

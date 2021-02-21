@@ -8,6 +8,8 @@ import numpy as np
 import torch.nn.functional as F
 from torch import nn, no_grad, tanh, cat, exp, mul, mean, dot
 
+LOGR = None
+
 # Functions
 
 ceil = math.ceil
