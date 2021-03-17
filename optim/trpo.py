@@ -3,11 +3,9 @@ from torch.distributions.kl import kl_divergence
 from TRPO.functions.const import *
 from .functions import cg, ls, convert2flat, convertFromFlat, unpackTrayectories
 
-"""import gc
-gc.set_threshold(8, 4, 3)"""
-
 class TRPO:
     """
+    Optimizer Trust Region Policy Optimization
 
     Mostly based on Schulman's implementation on Theano
     https://github.com/joschu/modular_rl/blob/master/modular_rl/trpo.py 
@@ -16,13 +14,12 @@ class TRPO:
     """
     def __init__(self, policy, **kwagrs):
         self.pi = policy
-        self.pi2 = policy.clone()
+        self.pi2 = policy.clone() # A copy of the network for surrogate evalution
         self.device = next(policy.parameters()).device
         self.delta = kwagrs.get("delta", MAX_DKL)
         self.states, self.returns = None, None
-        self.cgDamping = CG_DAMPING
+        self.cgDamping = kwagrs.get("cg_damping",CG_DAMPING)
         self.name = "TRPO"
-        self.gae = kwagrs.get("gae", False)
 
     def __repr__(self):
         return self.name
@@ -32,14 +29,13 @@ class TRPO:
         self.pi.none_grad()
         params = [p.clone().detach_() for p in self.pi.parameters()]
 
-        states, actions, returns, oldLogprobs, baselines, N = unpackTrayectories(*trayectoryBatch, device = self.device)
+        states, actions, returns, advantage, oldLogprobs, baselines, entropies, N = unpackTrayectories(*trayectoryBatch, device = self.device)
         self.states, self.returns = states, returns
         
         Ni = 1.0 / N
 
-        # This is not for GAE. Change this when is
-        advantage = returns - baselines
-        advantage.detach_()
+        #advantage = returns - baselines
+        #advantage.detach_()
 
         def calculateSurrogate(stateDict=None):
             if stateDict is not None:
@@ -54,7 +50,7 @@ class TRPO:
             oldLogprobs_ = Tsum(oldLogprobs.detach_(), dim=-1)
             probsDiff = exp(logprobsNew - oldLogprobs_) 
             surrogate = mean(mul(probsDiff, advantage))
-            surrogate *=  -1.0 if self.gae else 1.0
+            #surrogate *=  -1.0 if self.gae else 1.0
             return surrogate
         
         def getGrad(loss, c:float = 1.0, detach = True, 
@@ -68,7 +64,7 @@ class TRPO:
 
         # Calculate gradient respect to L(Theta)
         surr = calculateSurrogate()
-        pg = getGrad(surr)#, c = -1.0 if self.gae else 1.0)
+        pg = getGrad(surr)
 
         # Fisher-vector product
         def fvp(x, shapes):
@@ -96,7 +92,7 @@ class TRPO:
         # Begin
         ## Solve conjugate gradient for s
         stepDir, stpDirShapes  = cg(fvp, pg) # Consumes memory, gc failling in here
-        flatFVP, _ = convert2flat(fvp(stepDir, stpDirShapes)) # GUILTY of the memory accumulation
+        flatFVP, _ = convert2flat(fvp(stepDir, stpDirShapes)) 
         sHs = 0.5 * dot(stepDir, flatFVP)
         betai = Tsqrt(sHs / self.delta)
         fullStep = stepDir / betai
@@ -105,7 +101,7 @@ class TRPO:
 
         ## line search for the paramaters
         self.pi.zero_grad()
-        success, theta = ls(calculateSurrogate, params, fullStep, GStepDir, Min=self.gae)
+        success, theta = ls(calculateSurrogate, params, fullStep, GStepDir)
         self.pi.loadOther(theta)
         
         # Mem clean

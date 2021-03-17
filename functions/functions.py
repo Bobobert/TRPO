@@ -61,24 +61,31 @@ def testRun(env, policy, nTests:int, testSteps:int = -1, prnt: bool = False):
     return meanRunReward, tVar, stepsMean
     
 class Memory():
-    def __init__(self, gamma: float = GAMMA):
+    def __init__(self, gamma: float = GAMMA, lmbd: float = LAMBDA, gae: bool = False):
         assert (gamma >= 0) and (gamma <= 1), 'Gamma must be in [0,1]'
+        assert (lmbd >= 0) and (lmbd <= 1), 'lmbd(lambda) must be in [0,1]'
         self.gamma = gamma
+        self.lmbd = lmbd
+        self.gae = gae
         self.emptys()
 
     def emptys(self):
         self.states = []
         self.actions, self.probs = [], []
-        self.baselines = [] 
+        self.baselines = []
+        self.entropies = []
         self.rewards = List()
+        self.advantages = List()
         self.notTerminals = List()
         self._i = 0
 
-    def add(self, state, action, prob, reward, baseline, done:bool = False):
+    def add(self, state, action, prob, reward, advantage, entropy, baseline, done:bool = False):
         self.states.append(state)
         self.actions.append(action)
         self.probs.append(prob)
         self.rewards.append(reward)
+        self.entropies.append(entropy)
+        self.advantages.append(advantage)
         self.baselines.append(baseline if baseline is not None else torch.zeros((1,)))
         self.notTerminals.append(0.0 if done else 1.0)
         self._i += 1
@@ -96,12 +103,19 @@ class Memory():
         if size > len(self):
             return None
         
-        returns = toT(self._getReturns_(self.rewards, self.notTerminals, self.gamma), 
-                        device=device, grad=True).squeeze()
+        returns = toT(self._getReturns_(self.rewards, self.notTerminals, self.gamma, 1.0), 
+                            device=device, grad=False).squeeze()
         states = cat(self.states, dim=0).to(device)
         actions = cat(self.actions, dim=0).to(device)
         probs = cat(self.probs, dim=0).to(device)
         baselines = cat(self.baselines, dim=0).to(device)
+        entropies = cat(self.entropies, dim = 0).to(device)
+
+        if self.gae:
+            advantages = toT(self._getReturns_(self.advantages, self.notTerminals, self.gamma, self.lmbd), 
+                                device=device, grad=False).squeeze()
+        else:
+            advantages = returns - baselines.detach().squeeze()
 
         if size < 0:
             return {"states": states,
@@ -109,6 +123,8 @@ class Memory():
                     "probs":probs,
                     "baselines":baselines,
                     "returns":returns,
+                    "advantages":advantages,
+                    "entropies":entropies,
                     "N":len(self)}
             
         
@@ -119,6 +135,8 @@ class Memory():
                  "probs":probs[batchIdx],
                  "baselines":baselines[batchIdx],
                  "returns":returns[batchIdx],
+                 "advantages":advantages[batchIdx],
+                 "entropies":entropies[batchIdx],
                  "N":size}
 
     def clean(self):
@@ -128,12 +146,14 @@ class Memory():
         return self._i
 
     @staticmethod
-    @numba.jit
-    def _getReturns_(rewards: List, notTerminals: List, gamma:float):
-        newArr = np.zeros((len(rewards),1), dtype = np.float32)
+    @numba.njit
+    def _getReturns_(rewards: List, notTerminals: List, gamma:float, lmbd:float):
+        n = len(rewards)
+        newArr = np.zeros(n, dtype = np.float32)
+        gae = gamma * lmbd
         newArr[-1] = rewards[-1]
-        for i in range(len(rewards) - 2, -1, -1):
-            newArr[i] = rewards[i] + gamma * newArr[i + 1] * notTerminals[i]
+        for i in range(n - 2, -1, -1):
+            newArr[i] = rewards[i] + gae * newArr[i + 1] * notTerminals[i]
         return newArr
 
 class Crawler:
@@ -145,7 +165,12 @@ class Crawler:
                     maxEpisodeLength: int = MAX_LENGTH,
                     batchSize: int = BATCH_SIZE,
                     pBatchMem: float = 1.0,
+                    gae: bool = False, 
+                    lmbd: float = LAMBDA,
+                    vineSampling: bool = False,
                     device = DEVICE_DEFT):
+        if gae and (baseline is None):
+            raise ValueError("If gae mode is active a baseline must be passed on")
         self.env = envMaker()
         self.pi = policy
         self.baseline = baseline
@@ -153,7 +178,11 @@ class Crawler:
         self.maxEpLen = maxEpisodeLength
         self.batchSize = batchSize
         self.reqSteps = batchSize / pBatchMem if batchSize > 0 else 1
-        self.mem = Memory(gamma)
+        self.mem = Memory(gamma, lmbd, gae)
+        self.gae = gae
+        self.gamma = gamma
+        # TODO Add GAE, done (?)
+        # TODO Add Vine method
 
     def singlePath(self, seed:int = - 1, stateDict = None):
 
@@ -163,19 +192,26 @@ class Crawler:
         self.env.seed(seed if seed > 0 else None) # Reseed the environment
         
         steps = 0
+        advantage = 0.0
         obs = toT(self.env.reset(), device = self.device)
-        baseline = None
+        if self.baseline is not None:
+            baseline = self.baseline.forward(obs)
 
         for _ in range(self.maxEpLen):
             steps += 1
             with torch.no_grad():
-                action, log_action, _ = self.pi.infere(obs)
+                action, log_action, entropy = self.pi.infere(obs)
                 action_ = action.item() if self.pi.discrete else action.clone().to(DEVICE_DEFT).squeeze(0).numpy()
-                obsN, reward, done, _ = self.env.step(action_)
+                nextObs, reward, done, _ = self.env.step(action_)
+                nextObs = toT(nextObs, device = self.device)
                 if self.baseline is not None:
-                    baseline = self.baseline.forward(obs)
-            self.mem.add(obs, action, log_action, reward, baseline, done)
-            obs = toT(obsN, device = self.device)
+                    nextBaseline = self.baseline.forward(nextObs) if not done else torch.zeros([])
+            if self.gae:
+                # Calculate delta_t
+                advantage = reward + self.gamma * nextBaseline.item() - baseline.item()
+            self.mem.add(obs, action, log_action, reward, advantage, entropy, baseline, done)
+            obs = nextObs
+            baseline = nextBaseline
             if done:
                 break
 
@@ -214,6 +250,7 @@ def train(envMaker, policy,
             iterations: int = 100,
             batchSize: int = BATCH_SIZE,
             gamma: float = GAMMA,
+            lmbd: float = LAMBDA,
             maxDKL : float = MAX_DKL,
             beta:float = BETA,
             maxEpisodeLength: int = MAX_LENGTH,
@@ -228,9 +265,10 @@ def train(envMaker, policy,
 
     assert (gamma <= 1) and (gamma >= 0), "Gamma must be in the interval [0,1] "
     assert nWorkers > 0, "nWorkers must be greater than 0"
-    
+    assert batchSize > 32, "Just 'case"
     global LOGR
-
+    gae = kwargs.get("gae", False)
+    print("Gae status", gae)
     if nWorkers > 1:
         try:
             import ray
@@ -254,11 +292,13 @@ def train(envMaker, policy,
                                     policy.clone().to(DEVICE_DEFT), 
                                     baseline.clone().to(DEVICE_DEFT) if baseline is not None else None,
                                     gamma, maxEpisodeLength, 
-                                    batchPerCrw, pBatchMem) for _ in range(nWorkers - 1)]
+                                    batchPerCrw, pBatchMem,
+                                    gae = gae, lmbd = lmbd) for _ in range(nWorkers - 1)]
     else:
         crawler = Crawler(envMaker, policy.clone(), baseline.clone() if baseline is not None else None,
                             gamma,
-                            maxEpisodeLength, batchSize, pBatchMem, device)
+                            maxEpisodeLength, batchSize, pBatchMem, 
+                            gae = gae, lmbd = lmbd, device = device)
 
     testRewardRes, testVar, testStepsRes  = [], [], []
     # iterations loop
@@ -291,13 +331,19 @@ def train(envMaker, policy,
         # Update baseline parameters
         if baseline is not None:
             states, returns = optPolicy.states, optPolicy.returns
-            returns = returns.detach().to(device)
             states.detach_().to(device)
-            baseline_s = baseline.forward(states).squeeze()
-            optBaseline.zero_grad()
-            lossBaseline = F.mse_loss(baseline_s, returns)
-            lossBaseline.backward()
-            optBaseline.step()
+            returns = returns.detach_().to(device)
+            # Doing mini batches - Information already scrambled
+            n = returns.shape[0]
+            for i in range(0, n, 32):
+                s = i + 32
+                s = s if s < n else n
+                states_b, returns_b = states[i:s], returns[i:s]
+                baseline_b = baseline.forward(states_b).squeeze()
+                optBaseline.zero_grad()
+                lossBaseline = F.mse_loss(baseline_b, returns_b)
+                lossBaseline.backward()
+                optBaseline.step()
         
         # Update crawlers
         if RAY:

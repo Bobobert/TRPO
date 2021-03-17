@@ -5,3 +5,4 @@
 from .optimMaker import optimizerMaker
 from .trpo import TRPO
 from .pg import PG
+from .ppo import PPO

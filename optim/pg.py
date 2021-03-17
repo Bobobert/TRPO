@@ -5,6 +5,8 @@ from .functions import unpackTrayectories
 class PG:
     """
     Optimizer Policy gradient
+
+    It does support a baseline to calculate the Advantage function A(s,a) = Q(s,a) - V(s)
     """
     def __init__(self, policy, **kwargs):
         self.policy = policy
@@ -18,10 +20,9 @@ class PG:
         return self.name
 
     def updateParams(self, *trayectoryBatch):
-        states, actions, returns, oldLogprobs, baselines, N = unpackTrayectories(*trayectoryBatch, device = self.device)
+        states, actions, returns, advantages, oldLogprobs, baselines, entropies, N = unpackTrayectories(*trayectoryBatch, device = self.device)
         self.states, self.returns = states, returns
 
-        advantages = returns.unsqueeze(1) - baselines
         out = self.policy.forward(states)
         dist = self.policy.getDist(out)
         logActions = dist.log_prob(actions.detach_())

@@ -54,8 +54,8 @@ class Policy(nn.Module):
         dist = self.getDist(output)
         actions = dist.sample()
         log_actions = dist.log_prob(actions)
-        del dist # This should be alright as long as obs is stored
-        return actions, log_actions, output
+        entropy = dist.entropy()
+        return actions, log_actions, entropy
 
     def getAction(self, obs):
         with no_grad():

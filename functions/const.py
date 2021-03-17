@@ -33,7 +33,7 @@ def getDevice(cudaTry:bool = True):
 
 ITER_PER_EPOCH = 10**5
 GAMMA = 0.99
-LAMBDA = 0.10
+LAMBDA = 0.9
 LEARNING_RATE = 0.00001
 TEST_FREQ = 10**3
 TEST_STEPS = -1

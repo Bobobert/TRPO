@@ -27,28 +27,34 @@ def unpackTrayectories(*trayectories, device):
     N = 0
     # Ingest the trayectories
     if len(trayectories) > 1:
-        states, actions, returns, logprobs, baselines  = [], [], [], [], []
+        states, actions, returns, advantages, logprobs, baselines, entropies  = [], [], [], [], [], [], []
         for trayectory in trayectories:
             states += [trayectory["states"]]
             actions += [trayectory["actions"]]
             returns += [trayectory["returns"]]
+            advantages += [trayectory["advantages"]]
             logprobs += [trayectory["probs"]]
             baselines += [trayectory["baselines"]]
+            entropies += [trayectory["entropies"]]
             N += trayectory["N"]
         states = cat(states, dim=0).to(device)
         actions = cat(actions, dim=0).to(device)
         returns = cat(returns, dim=0).to(device)
+        advantages = cat(advantages, dim=0).to(device)
         logprobs = cat(logprobs, dim=0).to(device)
         baselines = cat(baselines, dim=0).to(device)
+        entropies = cat(entropies, dim=0).to(device)
     else:
         trayectoryBatch = trayectories[0]
         states = trayectoryBatch["states"].to(device)
         actions = trayectoryBatch["actions"].to(device)
         returns = trayectoryBatch["returns"].to(device)
+        advantages = trayectoryBatch["advantages"].to(device)
         logprobs = trayectoryBatch["probs"].to(device)
         baselines = trayectoryBatch["baselines"].to(device)
+        entropies = trayectoryBatch["entropies"].do(device)
         N = trayectoryBatch["N"]
-    return states, actions, returns, logprobs, baselines, N
+    return states, actions, returns, advantages, logprobs, baselines, entropies, N
 
 def cg(mvp, b, iters: int = 10, epsilon: float = 1e-10):
     """
