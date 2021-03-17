@@ -52,7 +52,7 @@ def unpackTrayectories(*trayectories, device):
         advantages = trayectoryBatch["advantages"].to(device)
         logprobs = trayectoryBatch["probs"].to(device)
         baselines = trayectoryBatch["baselines"].to(device)
-        entropies = trayectoryBatch["entropies"].do(device)
+        entropies = trayectoryBatch["entropies"].to(device)
         N = trayectoryBatch["N"]
     return states, actions, returns, advantages, logprobs, baselines, entropies, N
 

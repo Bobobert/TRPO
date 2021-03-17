@@ -20,14 +20,15 @@ class PG:
         return self.name
 
     def updateParams(self, *trayectoryBatch):
-        states, actions, returns, advantages, oldLogprobs, baselines, entropies, N = unpackTrayectories(*trayectoryBatch, device = self.device)
+        states, actions, returns, advantages, oldLogprobs, _, _, N = unpackTrayectories(*trayectoryBatch, device = self.device)
         self.states, self.returns = states, returns
 
         out = self.policy.forward(states)
         dist = self.policy.getDist(out)
         logActions = dist.log_prob(actions.detach_())
         self.opt.zero_grad()
-        lossPolicy = -1.0 * Tsum(mul(logActions, advantages))
+        logActions = Tsum(logActions, dim = -1)
+        lossPolicy = -1.0 * mean(mul(logActions, advantages))
         lossPolicy.backward()
         self.opt.step()
 

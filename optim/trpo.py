@@ -29,7 +29,7 @@ class TRPO:
         self.pi.none_grad()
         params = [p.clone().detach_() for p in self.pi.parameters()]
 
-        states, actions, returns, advantage, oldLogprobs, baselines, entropies, N = unpackTrayectories(*trayectoryBatch, device = self.device)
+        states, actions, returns, advantage, oldLogprobs, _, _, N = unpackTrayectories(*trayectoryBatch, device = self.device)
         self.states, self.returns = states, returns
         
         Ni = 1.0 / N

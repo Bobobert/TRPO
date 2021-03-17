@@ -126,7 +126,6 @@ class Memory():
                     "advantages":advantages,
                     "entropies":entropies,
                     "N":len(self)}
-            
         
         batchIdx = torch.randperm(len(self))[:size]
 
