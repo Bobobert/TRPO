@@ -25,8 +25,6 @@ NCPUS = os.cpu_count()
 F_DTYPE_DEFT = torch.float32
 DEVICE_DEFT = torch.device("cpu")
 OPT_DEF = "adam"
-EPS_SURROGATE = 0.2
-PPO_EPOCHS = 30
 EPS = 0.0001
 
 def getDevice(cudaTry:bool = True):
@@ -39,7 +37,7 @@ def getDevice(cudaTry:bool = True):
 ITER_PER_EPOCH = 10**5
 GAMMA = 0.99
 LAMBDA = 0.9
-LEARNING_RATE = 0.00001
+LEARNING_RATE = 0.0001
 TEST_FREQ = 10**3
 TEST_STEPS = -1
 TESTS = 20
@@ -50,9 +48,11 @@ BETA = 0.01
 CG_DAMPING = 1e-3
 BATCH_SIZE = MAX_LENGTH * EPISODES_PER_ITER
 ENTROPY_LOSS = 0.01
+EPS_SURROGATE = 0.1
+PPO_EPOCHS = 80
 
 # GX
-ALPHA = 0.2
+ALPHA = 0.15
 LINEWDT = 2
 CLRRDM = "red"
 CLRPI = "blue"

@@ -9,7 +9,8 @@ class PPO:
 
     From the paper https://arxiv.org/pdf/1707.06347.pdf
     """
-    miniBatchSize = 32
+    miniBatchSize = 128
+    
     def __init__(self, policy, **kwagrs):
         self.pi = policy
         self.device = next(policy.parameters()).device
@@ -31,9 +32,6 @@ class PPO:
         self.states, self.returns = states, returns
         states.requires_grad_(True)
 
-        # Normalize the advantages 
-        advantage = div(advantage  - mean(advantage), EPS + std(advantage))
-
         # Calculate new surrogate function
         # This one using the cliped Advantage
 
@@ -42,7 +40,10 @@ class PPO:
             oldLogprobs_b = oldLogprobs[batchIdx]
             actions_b = actions[batchIdx]
             advantage_b = advantage[batchIdx]
+            # Normalize the advantages 
+            advantage_b = div(advantage_b  - mean(advantage_b), EPS + std(advantage_b))
             entropies_b = entropies[batchIdx]
+            # Calculate surrogate
             dist = self.pi.getDist(self.pi.forward(states_b))
             diffLogs = dist.log_prob(actions_b) - oldLogprobs_b.detach_()
             ratio = exp(Tsum(diffLogs, dim = -1)) 
@@ -55,8 +56,6 @@ class PPO:
             surrogate = surrogate - self.beta * mean(entropies_b)
 
             return surrogate
-
-        
         
         # Train in batches
         for i in range(self.epochs):
@@ -65,13 +64,15 @@ class PPO:
             loss = calculateSurrogate(batchIdx)
             self.opt.zero_grad()
             loss.backward()
+            # Clamp gradients norm L2
+            torch.nn.utils.clip_grad_norm_(self.pi.parameters(), np.inf)
             self.opt.step()
 
             with torch.no_grad():
                 dist = self.pi.getDist(self.pi.forward(states))
                 logProbs = dist.log_prob(actions)
             kl = mean(oldLogprobs - logProbs)
-            if kl.item() > MAX_DKL:
-                break
+            if kl.item() > MAX_DKL * 2:
+                return "Ended at {} epoch. KL difference reached {}".format(i, kl.item())
 
         return None
