@@ -42,8 +42,7 @@ def test(env, policy, testSteps:int = - 1):
         accReward = accReward[0]
     return accReward, steps
 
-def testRun(env, policy, nTests:int, testSteps:int = -1, prnt: bool = False):
-    global LOGR
+def testRun(env, policy, nTests:int, testSteps:int = -1, prnt: bool = False, logger = None):
     meanRunReward, meanC, stepsMean, var = 0, 1 / nTests, 0, []
     for i in range(nTests):
         runRes, steps = test(env, policy, testSteps)
@@ -53,11 +52,12 @@ def testRun(env, policy, nTests:int, testSteps:int = -1, prnt: bool = False):
     tVar = 0
     for v in var:
         tVar += meanC * (v - meanRunReward)**2
-    if prnt:
-        s = "Means: accumulate_reward {:.3f}, variance {:.3f}, steps {:.3f}".format(meanRunReward, tVar, stepsMean)
-        print(s)
-        if LOGR is not None:
-            LOGR.logr(s)
+    
+    s = "Means: accumulate_reward {:.3f}, variance {:.3f}, steps {:.3f}".format(meanRunReward, tVar, stepsMean)
+    if prnt: 
+        print(s)  
+    if logger is not None:
+        logger.logr(s)
     return meanRunReward, tVar, stepsMean
     
 class Memory():
@@ -67,9 +67,9 @@ class Memory():
         self.gamma = gamma
         self.lmbd = lmbd
         self.gae = gae
-        self.emptys()
+        self.empties()
 
-    def emptys(self):
+    def empties(self):
         self.states = []
         self.actions, self.probs = [], []
         self.baselines = []
@@ -139,7 +139,7 @@ class Memory():
                  "N":size}
 
     def clean(self):
-        self.emptys()
+        self.empties()
 
     def __len__(self):
         return self._i
@@ -160,64 +160,97 @@ class Crawler:
     Crawler for gym environments.
     """
     def __init__(self, envMaker, policy,
-                    baseline = None, gamma: float = GAMMA,
+                    baseline = None, 
+                    gamma: float = GAMMA,
                     maxEpisodeLength: int = MAX_LENGTH,
                     batchSize: int = BATCH_SIZE,
                     pBatchMem: float = 1.0,
                     gae: bool = False, 
                     lmbd: float = LAMBDA,
                     vineSampling: bool = False,
+                    seed: int = -1,
                     device = DEVICE_DEFT):
+
         if gae and (baseline is None):
             raise ValueError("If gae mode is active a baseline must be passed on")
-        self.env = envMaker()
+
+        self.env = envMaker(seed = seed)
         self.pi = policy
         self.baseline = baseline
         self.device = device
         self.maxEpLen = maxEpisodeLength
         self.batchSize = batchSize
-        self.reqSteps = batchSize / pBatchMem if batchSize > 0 else 1
+        self.reqSteps = int(batchSize / pBatchMem) if batchSize > 0 else 1
         self.mem = Memory(gamma, lmbd, gae)
         self.gae = gae
         self.gamma = gamma
-        # TODO Add GAE, done (?)
+
+        # To single path
+        self.done = True
+        self.obs = None
+        self.steps = 0
+
+        if seed > 0:
+            torch.manual_seed(seed)
         # TODO Add Vine method
 
-    def singlePath(self, seed:int = - 1, stateDict = None):
+    def singlePath(self, seed:int = - 1):
 
-        if stateDict is not None:
-            self.pi.loadOther(stateDict)
+        if seed > 0:
+            self.env.seed(seed) # Reseed the environment
+            torch.manual_seed(seed)
 
-        self.env.seed(seed if seed > 0 else None) # Reseed the environment
-        
-        steps = 0
-        advantage = 0.0
-        obs = toT(self.env.reset(), device = self.device)
+        # Init from last
+        env = self.env
+        obs = self.obs
+        delta = 0.0
+        endBySteps = False
+
+        # Reseting env and variables
+        if self.done:
+            self.steps = 0
+            obs = toT(env.reset(), device = self.device)
+            self.done = False
         if self.baseline is not None:
-            baseline = self.baseline.forward(obs)
-
-        for _ in range(self.maxEpLen):
-            steps += 1
+            with torch.no_grad():
+                baseline = self.baseline.forward(obs)
+        else:
+            baseline = torch.zeros([])
+        
+        # Env Loop
+        while True:
+            self.steps += 1
             with torch.no_grad():
                 action, log_action, entropy = self.pi.infere(obs)
                 action_ = action.item() if self.pi.discrete else action.clone().to(DEVICE_DEFT).squeeze(0).numpy()
-                nextObs, reward, done, _ = self.env.step(action_)
+                nextObs, reward, done, _ = env.step(action_)
                 nextObs = toT(nextObs, device = self.device)
+                reward = float(reward)
+                # Baseline calculation
                 if self.baseline is not None:
                     nextBaseline = self.baseline.forward(nextObs) if not done else torch.zeros([])
+                else:
+                    nextBaseline = False
             if self.gae:
                 # Calculate delta_t
-                advantage = reward + self.gamma * nextBaseline.item() - baseline.item()
-            self.mem.add(obs, action, log_action, reward, advantage, entropy, baseline, done)
+                delta = reward + self.gamma * nextBaseline.item() - baseline.item()
+            # Enough steps, can do bootstrapping for the last value
+            if (self.steps == self.maxEpLen) and (baseline is not None):
+                reward += self.gamma * nextBaseline.item()
+                endBySteps = True
+            self.mem.add(obs, action, log_action, reward, delta, entropy, baseline, done or endBySteps)
             obs = nextObs
             baseline = nextBaseline
+            # End of loop
             if done:
+                self.done = True
                 break
-
-        if stateDict is not None:
-            self.pi.restoreParams()
+            elif endBySteps:
+                break
         
-        return steps
+        self.obs = obs
+        
+        return self.steps
 
     def updatePi(self, stateDict):
         self.pi.loadOther(stateDict)
@@ -226,12 +259,12 @@ class Crawler:
         self.baseline.loadOther(stateDict)
 
     def getBatch(self, seed: int = -1):
-        steps = 0
-        while steps < self.reqSteps:
-            steps += self.singlePath(seed=seed)
+        while len(self.mem) < self.reqSteps:
+            self.singlePath(seed=seed)
         return self.mem.getBatch(self.batchSize)
 
     def clearMem(self):
+        self.steps = 0
         self.mem.clean()
 
     def getMem(self, device = DEVICE_DEFT):
@@ -244,7 +277,6 @@ def train(envMaker, policy,
             optPolicy,
             baseline = None,
             optBaselineMaker = None,
-            testEnvMaker = None,
             saver = None,
             iterations: int = 100,
             batchSize: int = BATCH_SIZE,
@@ -259,15 +291,19 @@ def train(envMaker, policy,
             testSteps: int = MAX_LENGTH,
             device = DEVICE_DEFT,
             nWorkers = NCPUS,
+            workerSeeds:list = [],
+            testSeed: int = 69,
+            logger = None,
             **kwargs
             ):
 
     assert (gamma <= 1) and (gamma >= 0), "Gamma must be in the interval [0,1] "
     assert nWorkers > 0, "nWorkers must be greater than 0"
     assert batchSize > 32, "Just 'case"
-    global LOGR
     gae = kwargs.get("gae", False)
     print("Gae status", gae)
+
+    # init ray if needed
     if nWorkers > 1:
         try:
             import ray
@@ -279,12 +315,32 @@ def train(envMaker, policy,
     else:
         RAY = False
 
+    # Test variables
+    testRewardRes, testVar, testStepsRes  = [], [], []
+    envTest = envMaker(seed = testSeed)
+    if testSeed > 0:
+        torch.manual_seed(testSeed)
+
+    # Finishing training
+    def closeTent():
+        if RAY: 
+            ray.shutdown()
+        return (testRewardRes,
+                testVar,
+                testStepsRes)
+
     # Create and load the optimizers
     optPolicy = optPolicy(policy, **kwargs)
     optBaseline = optBaselineMaker(baseline.parameters()) if baseline is not None else None
 
     # Creating crawler
     if RAY:
+
+        diffSeeds = len(workerSeeds) - (nWorkers - 1)
+        if diffSeeds < 0:
+            for _ in range(-diffSeeds):
+                workerSeeds += [-1]
+
         crawler = ray.remote(Crawler)
         batchPerCrw = ceil(batchSize / (nWorkers - 1))
         crawlers = [crawler.remote(envMaker, 
@@ -292,14 +348,14 @@ def train(envMaker, policy,
                                     baseline.clone().to(DEVICE_DEFT) if baseline is not None else None,
                                     gamma, maxEpisodeLength, 
                                     batchPerCrw, pBatchMem,
-                                    gae = gae, lmbd = lmbd) for _ in range(nWorkers - 1)]
+                                    gae = gae, lmbd = lmbd,
+                                    seed = workerSeeds[i]) for i in range(nWorkers - 1)]
     else:
         crawler = Crawler(envMaker, policy.clone(), baseline.clone() if baseline is not None else None,
                             gamma,
                             maxEpisodeLength, batchSize, pBatchMem, 
-                            gae = gae, lmbd = lmbd, device = device)
+                            gae = gae, lmbd = lmbd, device = device, seed = workerSeeds[0])
 
-    testRewardRes, testVar, testStepsRes  = [], [], []
     # iterations loop
     bar = tqdm(range(iterations), unit="updates", desc="Training Policy")
     for it in bar:
@@ -308,24 +364,28 @@ def train(envMaker, policy,
             saver.check()
         # Checking and executing test
         if it % testFreq == 0:
-            envTest = testEnvMaker() if testEnvMaker is not None else envMaker()
-            meanAcc, var, meanSteps = testRun(envTest, policy, nTests=nTests ,testSteps = testSteps)
+            meanAcc, var, meanSteps = testRun(envTest, policy, nTests=nTests ,testSteps = testSteps, logger = logger)
             testRewardRes += [meanAcc]
             testVar += [var]
             testStepsRes += [meanSteps]
             bar.write("Test Results: meanGt {:.3f}, var {:.3f} meanEpSteps {:.3f}".format(meanAcc, var, meanSteps))
 
-        # Produce and get trayectories batches
+            if kwargs.get("desiredPerformance", False):
+                upper = meanAcc + 0.5 * var**0.5
+                if upper >= kwargs["desiredPerformance"]:
+                    return closeTent()
+
+        # Produce and get trajectories batches
         if not RAY:
-            trayectories = [crawler.getBatch()]
+            trajectories = [crawler.getBatch()]
         else:
-            trayectories = ray.get([crw.getBatch.remote() for crw in crawlers])
+            trajectories = ray.get([crw.getBatch.remote() for crw in crawlers])
         
         # Update policy parameters
-        s = optPolicy.updateParams(*trayectories)
+        s = optPolicy.updateParams(*trajectories)
         bar.write(s) if s is not None else None
-        if LOGR is not None:
-            LOGR.logr(s)
+        if logger is not None and s is not None:
+            logger.logr(s)
 
         # Update baseline parameters
         if baseline is not None:
@@ -357,12 +417,8 @@ def train(envMaker, policy,
             if baseline is not None:
                 crawler.updateBasline(baseline.getState(lst=True))
             crawler.clearMem()
-        
-    # Finishing training
-    if RAY: ray.shutdown()
-    return (testRewardRes,
-            testVar,
-            testStepsRes)
+
+    return closeTent()
 
 def playTest(env,
             policy,

@@ -22,7 +22,6 @@ class MiniLogger():
         s, spc = beginEntry()
         s += msg
         self.write(s)
-    
 
 def beginEntry():
     s = timeFormatedS() + "_log :: "

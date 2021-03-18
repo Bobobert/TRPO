@@ -23,20 +23,20 @@ def convertFromFlat(x, shapes):
         iL = iS
     return newX
 
-def unpackTrayectories(*trayectories, device):
+def unpackTrajectories(*trajectories, device):
     N = 0
-    # Ingest the trayectories
-    if len(trayectories) > 1:
+    # Ingest the trajectories
+    if len(trajectories) > 1:
         states, actions, returns, advantages, logprobs, baselines, entropies  = [], [], [], [], [], [], []
-        for trayectory in trayectories:
-            states += [trayectory["states"]]
-            actions += [trayectory["actions"]]
-            returns += [trayectory["returns"]]
-            advantages += [trayectory["advantages"]]
-            logprobs += [trayectory["probs"]]
-            baselines += [trayectory["baselines"]]
-            entropies += [trayectory["entropies"]]
-            N += trayectory["N"]
+        for trajectory in trajectories:
+            states += [trajectory["states"]]
+            actions += [trajectory["actions"]]
+            returns += [trajectory["returns"]]
+            advantages += [trajectory["advantages"]]
+            logprobs += [trajectory["probs"]]
+            baselines += [trajectory["baselines"]]
+            entropies += [trajectory["entropies"]]
+            N += trajectory["N"]
         states = cat(states, dim=0).to(device)
         actions = cat(actions, dim=0).to(device)
         returns = cat(returns, dim=0).to(device)
@@ -45,15 +45,15 @@ def unpackTrayectories(*trayectories, device):
         baselines = cat(baselines, dim=0).to(device)
         entropies = cat(entropies, dim=0).to(device)
     else:
-        trayectoryBatch = trayectories[0]
-        states = trayectoryBatch["states"].to(device)
-        actions = trayectoryBatch["actions"].to(device)
-        returns = trayectoryBatch["returns"].to(device)
-        advantages = trayectoryBatch["advantages"].to(device)
-        logprobs = trayectoryBatch["probs"].to(device)
-        baselines = trayectoryBatch["baselines"].to(device)
-        entropies = trayectoryBatch["entropies"].to(device)
-        N = trayectoryBatch["N"]
+        trajectoryBatch = trajectories[0]
+        states = trajectoryBatch["states"].to(device)
+        actions = trajectoryBatch["actions"].to(device)
+        returns = trajectoryBatch["returns"].to(device)
+        advantages = trajectoryBatch["advantages"].to(device)
+        logprobs = trajectoryBatch["probs"].to(device)
+        baselines = trajectoryBatch["baselines"].to(device)
+        entropies = trajectoryBatch["entropies"].to(device)
+        N = trajectoryBatch["N"]
     return states, actions, returns, advantages, logprobs, baselines, entropies, N
 
 def cg(mvp, b, iters: int = 10, epsilon: float = 1e-10):

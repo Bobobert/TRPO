@@ -1,7 +1,7 @@
 # THIS IS HELL
 from torch.distributions.kl import kl_divergence
 from TRPO.functions.const import *
-from .functions import cg, ls, convert2flat, convertFromFlat, unpackTrayectories
+from .functions import cg, ls, convert2flat, convertFromFlat, unpackTrajectories
 
 class TRPO:
     """
@@ -12,24 +12,24 @@ class TRPO:
 
 
     """
-    def __init__(self, policy, **kwagrs):
+    def __init__(self, policy, **kwargs):
         self.pi = policy
         self.pi2 = policy.clone() # A copy of the network for surrogate evalution
         self.device = next(policy.parameters()).device
-        self.delta = kwagrs.get("delta", MAX_DKL)
+        self.delta = kwargs.get("delta", MAX_DKL)
         self.states, self.returns = None, None
-        self.cgDamping = kwagrs.get("cg_damping",CG_DAMPING)
+        self.cgDamping = kwargs.get("cg_damping",CG_DAMPING)
         self.name = "TRPO"
 
     def __repr__(self):
         return self.name
 
-    def updateParams(self, *trayectoryBatch):
+    def updateParams(self, *trajectoryBatch):
 
         self.pi.none_grad()
         params = [p.clone().detach_() for p in self.pi.parameters()]
 
-        states, actions, returns, advantage, oldLogprobs, _, _, N = unpackTrayectories(*trayectoryBatch, device = self.device)
+        states, actions, returns, advantage, oldLogprobs, _, _, N = unpackTrajectories(*trajectoryBatch, device = self.device)
         self.states, self.returns = states, returns
         
         Ni = 1.0 / N

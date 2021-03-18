@@ -1,6 +1,6 @@
 from .optimMaker import optimizerMaker
 from TRPO.functions.const import *
-from .functions import unpackTrayectories
+from .functions import unpackTrajectories
 
 class PG:
     """
@@ -19,8 +19,8 @@ class PG:
     def __repr__(self):
         return self.name
 
-    def updateParams(self, *trayectoryBatch):
-        states, actions, returns, advantages, oldLogprobs, _, _, N = unpackTrayectories(*trayectoryBatch, device = self.device)
+    def updateParams(self, *trajectoryBatch):
+        states, actions, returns, advantages, oldLogprobs, _, _, N = unpackTrajectories(*trajectoryBatch, device = self.device)
         self.states, self.returns = states, returns
 
         out = self.policy.forward(states)
@@ -30,6 +30,7 @@ class PG:
         logActions = Tsum(logActions, dim = -1)
         lossPolicy = -1.0 * mean(mul(logActions, advantages))
         lossPolicy.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), np.inf)
         self.opt.step()
 
         return None

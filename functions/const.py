@@ -25,7 +25,7 @@ NCPUS = os.cpu_count()
 F_DTYPE_DEFT = torch.float32
 DEVICE_DEFT = torch.device("cpu")
 OPT_DEF = "adam"
-EPS = 0.0001
+EPS = 1e-6
 
 def getDevice(cudaTry:bool = True):
     if torch.cuda.is_available() and cudaTry:
@@ -49,7 +49,8 @@ CG_DAMPING = 1e-3
 BATCH_SIZE = MAX_LENGTH * EPISODES_PER_ITER
 ENTROPY_LOSS = 0.01
 EPS_SURROGATE = 0.1
-PPO_EPOCHS = 80
+PPO_EPOCHS = 10
+MINI_BATCH_SIZE = 32
 
 # GX
 ALPHA = 0.15

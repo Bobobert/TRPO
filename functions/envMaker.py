@@ -2,7 +2,7 @@ from gym import make
 from gym.spaces import Box, Discrete, MultiDiscrete 
 import gym
 
-def configEnvMaker(name:str, seed:int = -1, **kwargs):
+def configEnvMaker(name:str, **kwargs):
     
     tEnv = make(name)
     obS = tEnv.observation_space
@@ -23,7 +23,7 @@ def configEnvMaker(name:str, seed:int = -1, **kwargs):
         discrete = False
         actions = flat(acS.shape)
 
-    def envMaker():
+    def envMaker(seed:int = -1):
         env = make(name, **kwargs)
         env.seed(seed) if seed > 0 else None
         return env
