@@ -188,7 +188,7 @@ class Crawler:
         # To single path
         self.done = True
         self.obs = None
-        self.steps = 0
+        self.episodes = 0
 
         if seed > 0:
             torch.manual_seed(seed)
@@ -205,10 +205,10 @@ class Crawler:
         obs = self.obs
         delta = 0.0
         endBySteps = False
+        stepsDone = 0
 
         # Reseting env and variables
         if self.done:
-            self.steps = 0
             obs = toT(env.reset(), device = self.device)
             self.done = False
         if self.baseline is not None:
@@ -219,7 +219,7 @@ class Crawler:
         
         # Env Loop
         while True:
-            self.steps += 1
+            stepsDone += 1
             with torch.no_grad():
                 action, log_action, entropy = self.pi.infere(obs)
                 action_ = action.item() if self.pi.discrete else action.clone().to(DEVICE_DEFT).squeeze(0).numpy()
@@ -235,7 +235,7 @@ class Crawler:
                 # Calculate delta_t
                 delta = reward + self.gamma * nextBaseline.item() - baseline.item()
             # Enough steps, can do bootstrapping for the last value
-            if (self.steps == self.maxEpLen) and (baseline is not None):
+            if (stepsDone == self.maxEpLen) and (baseline is not None):
                 reward += self.gamma * nextBaseline.item()
                 endBySteps = True
             self.mem.add(obs, action, log_action, reward, delta, entropy, baseline, done or endBySteps)
@@ -244,13 +244,12 @@ class Crawler:
             # End of loop
             if done:
                 self.done = True
+                self.episodes += 1
                 break
             elif endBySteps:
                 break
         
         self.obs = obs
-        
-        return self.steps
 
     def updatePi(self, stateDict):
         self.pi.loadOther(stateDict)
